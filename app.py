@@ -112,56 +112,114 @@ else:
 
 # Analysis options
 st.header("🔍 Analysis Options")
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     do_preprocessing = st.checkbox("Text Preprocessing", value=True)
-with col2:
-    do_sentiment = st.checkbox("Sentiment Analysis", value=True)
-with col3:
-    do_topic = st.checkbox("Topic Modeling", value=True)
-
-if not st.session_state.api_key:
-    st.warning("Please enter your GEMINI API key in the sidebar to perform the analysis.")
-
-# Process button
-if st.button("Analyze Text", type="primary", disabled=not st.session_state.api_key or not user_input):
-    if not user_input:
-        st.error("Please enter some text to analyze.")
-    else:
-        with st.spinner("Analyzing text..."):
-            # Store raw text
-            st.session_state.raw_text = user_input
-            
-            # Perform preprocessing if selected
-            if do_preprocessing:
-                progress_bar = st.progress(0)
+    if st.button("Run Preprocessing", key="btn_preprocess", use_container_width=True):
+        if not user_input:
+            st.error("Please enter some text to analyze.")
+        elif not st.session_state.api_key:
+            st.warning("Please enter your GEMINI API key in the sidebar.")
+        else:
+            with st.spinner("Preprocessing text..."):
+                # Store raw text
+                st.session_state.raw_text = user_input
                 
                 st.info("Preprocessing text...")
                 processed_text = preprocess_text(user_input)
                 st.session_state.processed_text = processed_text
-                progress_bar.progress(33)
+                st.success("Text preprocessing completed!")
+
+with col2:
+    do_sentiment = st.checkbox("Sentiment Analysis", value=True)
+    if st.button("Run Sentiment", key="btn_sentiment", use_container_width=True):
+        if not user_input:
+            st.error("Please enter some text to analyze.")
+        elif not st.session_state.api_key:
+            st.warning("Please enter your GEMINI API key in the sidebar.")
+        else:
+            with st.spinner("Analyzing sentiment..."):
+                # Store raw text
+                st.session_state.raw_text = user_input
                 
-                # Perform sentiment analysis if selected
-                if do_sentiment:
-                    st.info("Analyzing sentiment...")
-                    sentiment_result = analyze_sentiment(user_input, st.session_state.api_key)
-                    st.session_state.sentiment_result = sentiment_result
-                progress_bar.progress(66)
+                # Ensure we have processed text
+                if not st.session_state.processed_text:
+                    processed_text = preprocess_text(user_input)
+                    st.session_state.processed_text = processed_text
                 
-                # Perform topic modeling if selected
-                if do_topic:
-                    st.info("Extracting topics...")
-                    topic_result = perform_topic_modeling(processed_text)
-                    st.session_state.topic_result = topic_result
+                st.info("Analyzing sentiment...")
+                sentiment_result = analyze_sentiment(user_input, st.session_state.api_key)
+                st.session_state.sentiment_result = sentiment_result
+                st.success("Sentiment analysis completed!")
+
+with col3:
+    do_topic = st.checkbox("Topic Modeling", value=True)
+    if st.button("Run Topics", key="btn_topics", use_container_width=True):
+        if not user_input:
+            st.error("Please enter some text to analyze.")
+        elif not st.session_state.api_key:
+            st.warning("Please enter your GEMINI API key in the sidebar.")
+        else:
+            with st.spinner("Extracting topics..."):
+                # Store raw text
+                st.session_state.raw_text = user_input
+                
+                # Ensure we have processed text
+                if not st.session_state.processed_text:
+                    processed_text = preprocess_text(user_input)
+                    st.session_state.processed_text = processed_text
+                else:
+                    processed_text = st.session_state.processed_text
+                
+                st.info("Extracting topics...")
+                topic_result = perform_topic_modeling(processed_text)
+                st.session_state.topic_result = topic_result
+                st.success("Topic modeling completed!")
+
+with col4:
+    st.checkbox("Comprehensive Analysis", value=True, key="do_comprehensive")
+    if st.button("Full Analysis", key="btn_full", use_container_width=True, type="primary"):
+        if not user_input:
+            st.error("Please enter some text to analyze.")
+        elif not st.session_state.api_key:
+            st.warning("Please enter your GEMINI API key in the sidebar.")
+        else:
+            with st.spinner("Running complete analysis..."):
+                # Store raw text
+                st.session_state.raw_text = user_input
+                
+                progress_bar = st.progress(0)
+                
+                # Run text preprocessing
+                st.info("Preprocessing text...")
+                processed_text = preprocess_text(user_input)
+                st.session_state.processed_text = processed_text
+                progress_bar.progress(25)
+                
+                # Run sentiment analysis
+                st.info("Analyzing sentiment...")
+                sentiment_result = analyze_sentiment(user_input, st.session_state.api_key)
+                st.session_state.sentiment_result = sentiment_result
+                progress_bar.progress(50)
+                
+                # Run topic modeling
+                st.info("Extracting topics...")
+                topic_result = perform_topic_modeling(processed_text)
+                st.session_state.topic_result = topic_result
+                progress_bar.progress(75)
+                
+                # Run comprehensive analysis
+                st.info("Getting comprehensive insights from GEMINI...")
+                gemini_analysis = analyze_text_with_gemini(user_input, st.session_state.api_key)
+                st.session_state.full_analysis = gemini_analysis
                 progress_bar.progress(100)
-            
-            # Perform comprehensive analysis with GEMINI
-            st.info("Getting comprehensive insights from GEMINI...")
-            gemini_analysis = analyze_text_with_gemini(user_input, st.session_state.api_key)
-            st.session_state.full_analysis = gemini_analysis
-            
-            time.sleep(0.5)  # Brief pause to show completion
+                
+                st.success("Full analysis completed!")
+                time.sleep(0.5)  # Brief pause to show completion
+
+if not st.session_state.api_key:
+    st.warning("Please enter your GEMINI API key in the sidebar to perform the analysis.")
 
 # Display results if available
 if st.session_state.raw_text:
