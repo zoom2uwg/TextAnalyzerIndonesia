@@ -12,6 +12,9 @@ dependencies = [
     "numpy>=1.26.4",
     "pandas>=2.2.3",
     "plotly>=6.0.1",
+    "psycopg2-binary>=2.9.10",
+    "python-dotenv>=1.0.1",
+    "sqlalchemy>=2.0.39",
     "streamlit>=1.43.2",
     "wordcloud>=1.9.4",
 ]
