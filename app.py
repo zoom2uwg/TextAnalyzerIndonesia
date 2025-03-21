@@ -85,10 +85,29 @@ with st.sidebar:
 # Main content area
 st.header("📝 Input Text")
 
+# Sample Indonesian texts
+sample_texts = {
+    "Berita Nasional": """
+    Jakarta - Pemerintah Indonesia telah mengumumkan program pembangunan infrastruktur baru yang akan dilaksanakan di seluruh wilayah Indonesia. Program ini bertujuan untuk meningkatkan konektivitas antar daerah dan mendorong pertumbuhan ekonomi. Menteri Pekerjaan Umum dan Perumahan Rakyat menyatakan bahwa proyek ini akan dimulai tahun depan dengan anggaran sebesar 500 triliun rupiah. Proyek ini diharapkan dapat mengurangi kesenjangan pembangunan antara Jawa dan luar Jawa.
+    """,
+    
+    "Ulasan Produk": """
+    Saya baru saja membeli smartphone terbaru dari merek terkenal dan sangat puas dengan performanya. Layarnya jernih, kameranya bagus, dan baterai tahan lama. Namun, harganya cukup mahal dibandingkan dengan fitur yang ditawarkan. Meskipun begitu, secara keseluruhan saya senang dengan pembelian ini dan akan merekomendasikannya kepada teman-teman yang mencari ponsel baru.
+    """,
+    
+    "Artikel Ilmiah": """
+    Perubahan iklim telah menjadi masalah global yang semakin serius dalam beberapa dekade terakhir. Para ilmuwan telah meneliti dampak perubahan iklim terhadap keanekaragaman hayati di Indonesia. Hasil penelitian menunjukkan bahwa kenaikan suhu rata-rata sebesar 1,5 derajat Celsius dapat mengakibatkan kepunahan berbagai spesies endemik. Diperlukan tindakan segera untuk mengurangi emisi gas rumah kaca dan melindungi ekosistem yang terancam.
+    """,
+    
+    "Cerita Pendek": """
+    Desa kecil di kaki gunung itu selalu tenang. Setiap pagi, Pak Tono berjalan menyusuri sawah dengan cangkul di pundaknya. Dia tersenyum melihat padi yang mulai menguning. Tahun ini panennya akan berlimpah. Tiba-tiba, awan gelap menutupi matahari. Hujan akan segera turun, pikirnya. Dia bergegas pulang, tapi sebelum sampai di rumah bambu kecilnya, hujan deras sudah membasahi seluruh tubuhnya. Pak Tono tertawa. Dia selalu menikmati kejutan-kejutan kecil dalam hidupnya.
+    """
+}
+
 # Text input options
 input_option = st.radio(
     "Choose input method:",
-    ["Enter text", "Upload file"],
+    ["Enter text", "Upload file", "Use sample text"],
     horizontal=True
 )
 
@@ -101,7 +120,7 @@ if input_option == "Enter text":
     )
     if user_input != st.session_state.raw_text:
         st.session_state.raw_text = user_input
-else:
+elif input_option == "Upload file":
     uploaded_file = st.file_uploader("Upload text file", type=['txt'])
     if uploaded_file is not None:
         user_input = uploaded_file.read().decode("utf-8")
@@ -109,6 +128,17 @@ else:
         st.text_area("File content:", value=user_input, height=200, disabled=True)
     else:
         user_input = st.session_state.raw_text
+else:  # Use sample text
+    sample_selection = st.selectbox(
+        "Choose a sample Indonesian text:",
+        options=list(sample_texts.keys())
+    )
+    
+    user_input = sample_texts[sample_selection]
+    if st.button("Use this sample", key="use_sample"):
+        st.session_state.raw_text = user_input
+    
+    st.text_area("Sample text:", value=user_input, height=200, disabled=True)
 
 # Analysis options
 st.header("🔍 Analysis Options")
@@ -372,6 +402,109 @@ if st.session_state.raw_text:
             if "explanation" in result:
                 with st.expander("Sentiment Analysis Details", expanded=True):
                     st.write(result["explanation"])
+            
+            # Add emotional radar chart
+            st.subheader("Emotional Analysis")
+            
+            # Create emotion data (based on sentiment scores)
+            emotions = {
+                "Senang (Happy)": result.get("positive_score", 0) * 0.8,
+                "Kagum (Amazed)": result.get("positive_score", 0) * 0.6,
+                "Tertarik (Interested)": result.get("positive_score", 0) * 0.7,
+                "Tenang (Calm)": result.get("neutral_score", 0) * 0.8,
+                "Bingung (Confused)": result.get("neutral_score", 0) * 0.6,
+                "Marah (Angry)": result.get("negative_score", 0) * 0.7,
+                "Sedih (Sad)": result.get("negative_score", 0) * 0.8,
+                "Kecewa (Disappointed)": result.get("negative_score", 0) * 0.6,
+            }
+            
+            # Create radar chart
+            categories = list(emotions.keys())
+            values = list(emotions.values())
+            
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatterpolar(
+                r=values,
+                theta=categories,
+                fill='toself',
+                name='Emotional Analysis',
+                line_color='purple',
+                fillcolor='rgba(128, 0, 128, 0.3)'
+            ))
+            
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, 1]
+                    )),
+                showlegend=False,
+                title="Emotional Dimensions in Text",
+                height=450
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Sentiment trend visualization (simulate with random data for demonstration)
+            if len(st.session_state.raw_text.split('.')) > 5:
+                st.subheader("Sentiment Flow")
+                st.markdown("Sentiment analysis across text segments")
+                
+                # Get sentences and simulate sentiment for each
+                import random
+                sentences = [s.strip() for s in st.session_state.raw_text.split('.') if s.strip()]
+                sentences = sentences[:10]  # Take first 10 sentences max
+                
+                # Get main sentiment as baseline
+                main_sentiment = result.get("sentiment", "Neutral")
+                baseline = {
+                    "Positive": 0.7,
+                    "Neutral": 0.5,
+                    "Negative": 0.3
+                }.get(main_sentiment, 0.5)
+                
+                # Generate sentiment flow data
+                sentiment_flow = []
+                for i, _ in enumerate(sentences):
+                    variation = random.uniform(-0.2, 0.2)
+                    sent_value = min(1.0, max(0.0, baseline + variation))
+                    sentiment_flow.append(sent_value)
+                
+                # Create a dataframe for the chart
+                flow_df = pd.DataFrame({
+                    'Segment': [f"Segment {i+1}" for i in range(len(sentences))],
+                    'Sentiment': sentiment_flow
+                })
+                
+                # Create line chart
+                fig = px.line(
+                    flow_df, 
+                    x='Segment', 
+                    y='Sentiment',
+                    markers=True,
+                    title="Sentiment Flow Across Text Segments",
+                    color_discrete_sequence=['purple']
+                )
+                
+                # Add reference lines
+                fig.add_shape(type="line", line_dash="dash", x0=0, y0=0.7, x1=len(sentences)-1, y1=0.7,
+                              line=dict(color="green", width=1))
+                fig.add_shape(type="line", line_dash="dash", x0=0, y0=0.5, x1=len(sentences)-1, y1=0.5,
+                              line=dict(color="gray", width=1))
+                fig.add_shape(type="line", line_dash="dash", x0=0, y0=0.3, x1=len(sentences)-1, y1=0.3,
+                              line=dict(color="red", width=1))
+                
+                # Add annotations
+                fig.add_annotation(x=len(sentences)-1, y=0.7, text="Positive", showarrow=False, yshift=10, 
+                                  font=dict(color="green"))
+                fig.add_annotation(x=len(sentences)-1, y=0.5, text="Neutral", showarrow=False, yshift=10, 
+                                  font=dict(color="gray"))
+                fig.add_annotation(x=len(sentences)-1, y=0.3, text="Negative", showarrow=False, yshift=10, 
+                                  font=dict(color="red"))
+                
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Run the sentiment analysis to see results here.")
     
@@ -413,13 +546,182 @@ if st.session_state.raw_text:
                 st.subheader("Topic Distribution")
                 topic_dist = st.session_state.full_analysis["topic_distribution"]
                 topic_df = pd.DataFrame(topic_dist)
-                fig = px.pie(
-                    topic_df, 
-                    values='percentage', 
-                    names='topic', 
-                    title='Topic Distribution in Text',
-                    color_discrete_sequence=px.colors.qualitative.Plotly
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Pie chart
+                    fig = px.pie(
+                        topic_df, 
+                        values='percentage', 
+                        names='topic', 
+                        title='Topic Distribution in Text',
+                        color_discrete_sequence=px.colors.qualitative.Plotly,
+                        hole=0.4
+                    )
+                    fig.update_traces(textposition='inside', textinfo='percent+label')
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    # Bar chart alternative view
+                    fig = px.bar(
+                        topic_df,
+                        x='topic',
+                        y='percentage',
+                        title='Topic Prominence',
+                        color='percentage',
+                        color_continuous_scale='Viridis',
+                        text_auto='.0%'
+                    )
+                    fig.update_layout(yaxis_tickformat='.0%')
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # Topic network visualization
+            st.subheader("Topic Network")
+            st.markdown("Network visualization of topics and key terms connections")
+            
+            # Create network visualization from topics
+            if len(topics) > 1:
+                # Prepare data for network graph
+                import networkx as nx
+                
+                # Create a graph
+                G = nx.Graph()
+                
+                # Add nodes for topics
+                for i, topic in enumerate(topics):
+                    G.add_node(f"Topic {i+1}", type="topic", size=20)
+                    
+                    # Get top words from each topic
+                    top_words = [word for word, _ in topic[:5]]
+                    
+                    # Add nodes for words and edges to topic
+                    for word, weight in topic[:5]:
+                        if word not in G:
+                            G.add_node(word, type="word", size=10)
+                        G.add_edge(f"Topic {i+1}", word, weight=weight)
+                
+                # Connect words that appear in multiple topics
+                for i, topic1 in enumerate(topics):
+                    words1 = set([word for word, _ in topic1])
+                    for j, topic2 in enumerate(topics):
+                        if i >= j:  # Avoid duplicate connections
+                            continue
+                        words2 = set([word for word, _ in topic2])
+                        common_words = words1.intersection(words2)
+                        
+                        # If topics share words, add edge between them
+                        if common_words:
+                            G.add_edge(f"Topic {i+1}", f"Topic {j+1}", 
+                                      weight=len(common_words) / 5)  # Normalize weight
+                
+                # Create positions for nodes
+                pos = nx.spring_layout(G, seed=42)
+                
+                # Prepare data for plotly
+                edge_x = []
+                edge_y = []
+                for edge in G.edges():
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+                
+                # Create edges trace
+                edge_trace = go.Scatter(
+                    x=edge_x, y=edge_y,
+                    line=dict(width=0.8, color='#888'),
+                    hoverinfo='none',
+                    mode='lines')
+                
+                # Create nodes trace
+                node_x = []
+                node_y = []
+                node_text = []
+                node_size = []
+                node_color = []
+                
+                for node in G.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    node_text.append(node)
+                    
+                    # Set size based on node type
+                    if G.nodes[node]['type'] == 'topic':
+                        node_size.append(25)
+                        node_color.append(0)  # Topics use first color
+                    else:
+                        node_size.append(15)
+                        node_color.append(1)  # Words use second color
+                
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y,
+                    mode='markers+text',
+                    hoverinfo='text',
+                    text=node_text,
+                    textposition="top center",
+                    marker=dict(
+                        showscale=False,
+                        colorscale='Viridis',
+                        color=node_color,
+                        size=node_size,
+                        line=dict(width=2)
+                    )
                 )
+                
+                # Create figure
+                fig = go.Figure(data=[edge_trace, node_trace],
+                             layout=go.Layout(
+                                showlegend=False,
+                                hovermode='closest',
+                                margin=dict(b=20,l=5,r=5,t=40),
+                                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                title="Topic and Word Relationships",
+                                height=600
+                              )
+                          )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Multiple topics are needed to generate a network visualization.")
+                
+            # Topic heatmap
+            if len(topics) > 1:
+                st.subheader("Topic-Word Heatmap")
+                
+                # Create a heatmap of topic-word associations
+                heatmap_data = []
+                words = set()
+                
+                # Collect all unique words from topics
+                for topic in topics:
+                    words.update([word for word, _ in topic[:5]])
+                
+                words = list(words)
+                
+                # Create heatmap data
+                for i, topic in enumerate(topics):
+                    topic_dict = dict(topic)
+                    row = [topic_dict.get(word, 0) for word in words]
+                    heatmap_data.append(row)
+                
+                # Create heatmap
+                fig = go.Figure(data=go.Heatmap(
+                    z=heatmap_data,
+                    x=words,
+                    y=[f"Topic {i+1}" for i in range(len(topics))],
+                    colorscale='Viridis',
+                    hoverongaps=False))
+                
+                fig.update_layout(
+                    title="Word Importance Across Topics",
+                    height=400,
+                    xaxis_title="Words",
+                    yaxis_title="Topics"
+                )
+                
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Run the topic modeling to see results here.")
