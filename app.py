@@ -241,16 +241,54 @@ elif input_option == "Upload file":
     else:
         user_input = st.session_state.raw_text
 else:  # Use sample text
-    sample_selection = st.selectbox(
-        "Choose a sample Indonesian text:",
-        options=list(sample_texts.keys())
-    )
+    # Check if we need to fetch dynamic samples
+    if not st.session_state.dynamic_samples or st.session_state.refresh_samples:
+        with st.spinner("Fetching sample texts from Indonesian websites..."):
+            try:
+                # Fetch dynamic samples from real Indonesian websites
+                dynamic_samples = get_dynamic_samples(2)  # Try to get 2 dynamic samples
+                if dynamic_samples:
+                    st.session_state.dynamic_samples = dynamic_samples
+                st.session_state.refresh_samples = False
+            except Exception as e:
+                logger.error(f"Error fetching dynamic samples: {str(e)}")
+                # Keep using static samples if dynamic ones fail
+                if not st.session_state.dynamic_samples:
+                    st.session_state.dynamic_samples = {}
     
-    user_input = sample_texts[sample_selection]
-    if st.button("Use this sample", key="use_sample"):
-        st.session_state.raw_text = user_input
+    # Combine static and dynamic samples
+    all_samples = {**sample_texts, **st.session_state.dynamic_samples}
     
-    st.text_area("Sample text:", value=user_input, height=200, disabled=True)
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        sample_selection = st.selectbox(
+            "Choose a sample Indonesian text:",
+            options=list(all_samples.keys())
+        )
+    
+    with col2:
+        if st.button("🔄 Refresh Samples", key="refresh_samples"):
+            st.session_state.refresh_samples = True
+            st.rerun()
+    
+    # Create a stylized card for the sample
+    st.markdown("""
+    <div class="stCard">
+        <h4 style="margin-top: 0;">Sample Text</h4>
+    """, unsafe_allow_html=True)
+    
+    user_input = all_samples[sample_selection]
+    st.text_area("", value=user_input, height=200, disabled=True, 
+                label_visibility="collapsed")
+    
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("📋 Use this sample", key="use_sample"):
+            st.session_state.raw_text = user_input
+    
+    # Close the card div
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # Analysis options
 st.header("🔍 Analysis Options")
@@ -382,8 +420,9 @@ if st.session_state.raw_text:
                 # Get text type (if selected from sample)
                 text_type = None
                 if input_option == "Use sample text":
-                    # Determine text type from the sample text
-                    for sample_name, sample_content in sample_texts.items():
+                    # Determine text type from all samples (static and dynamic)
+                    all_samples = {**sample_texts, **st.session_state.dynamic_samples}
+                    for sample_name, sample_content in all_samples.items():
                         if user_input.strip() == sample_content.strip():
                             text_type = sample_name
                             break
