@@ -8,10 +8,16 @@ from text_analysis import analyze_sentiment, analyze_text_with_gemini
 from topic_modeling import perform_topic_modeling
 from utils import get_indonesian_stopwords, display_wordcloud, apply_custom_css, format_json_for_display
 from database import save_analysis, get_analysis_history, get_analysis_by_id
+from web_scraper import get_dynamic_samples
 import time
 import os
 import json
+import logging
 from dotenv import load_dotenv
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +29,98 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Apply custom CSS for modern UI
+st.markdown("""
+<style>
+    /* Modern color scheme */
+    :root {
+        --primary-color: #6C63FF;
+        --secondary-color: #4CC9F0;
+        --accent-color: #F72585;
+        --background-color: #F8F9FA;
+        --text-color: #212529;
+    }
+    
+    /* Font styling */
+    h1, h2, h3 {
+        font-family: 'Helvetica Neue', sans-serif;
+        font-weight: 700;
+        color: var(--text-color);
+    }
+    
+    /* Card-like containers */
+    .stCard {
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        background-color: white;
+        transition: transform 0.3s ease;
+    }
+    
+    .stCard:hover {
+        transform: translateY(-5px);
+    }
+    
+    /* Buttons styling */
+    .stButton>button {
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        border-radius: 4px 4px 0 0;
+        padding: 10px 16px;
+        font-weight: 600;
+    }
+    
+    /* Metrics styling */
+    [data-testid="stMetricValue"] {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--primary-color);
+    }
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background-color: var(--background-color);
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        font-weight: 600;
+        color: var(--primary-color);
+    }
+    
+    /* Animation for loading states */
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.3; }
+        100% { opacity: 1; }
+    }
+    
+    .stSpinner {
+        animation: pulse 1.5s infinite;
+    }
+    
+    /* Footer styling */
+    footer {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid #e9ecef;
+        text-align: center;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state variables if they don't exist
 if 'processed_text' not in st.session_state:
@@ -38,13 +136,21 @@ if 'full_analysis' not in st.session_state:
 if 'api_key' not in st.session_state:
     # Get API key from environment variable or use the provided key
     st.session_state.api_key = os.getenv("GEMINI_API_KEY", "AIzaSyBJXSaPA8cPKloNc27rwcl0mNA5_NBkwuE")
+if 'dynamic_samples' not in st.session_state:
+    # Initialize with static samples that will be replaced with dynamic ones
+    st.session_state.dynamic_samples = {}
+if 'refresh_samples' not in st.session_state:
+    st.session_state.refresh_samples = False
 
-# Title and description
-st.title("🇮🇩 Indonesian Text Analysis")
+# Title and description with modern styling
 st.markdown("""
-This application analyzes Indonesian text using advanced NLP techniques and the GEMINI API.
-Upload your text to get insights on sentiment, topics, and more.
-""")
+<div style="text-align: center; padding: 2rem 0;">
+    <h1 style="color: #6C63FF; font-size: 3rem;">🇮🇩 Indonesian Text Analysis</h1>
+    <p style="font-size: 1.2rem; margin-top: 0.5rem; color: #495057;">
+        Analyze Indonesian text using advanced NLP techniques powered by GEMINI API
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 # Sidebar for API Key and actions
 with st.sidebar:
