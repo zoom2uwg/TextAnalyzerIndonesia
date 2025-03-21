@@ -9,6 +9,7 @@ from topic_modeling import perform_topic_modeling
 from utils import get_indonesian_stopwords, display_wordcloud, apply_custom_css, format_json_for_display
 from database import save_analysis, get_analysis_history, get_analysis_by_id
 from web_scraper import get_dynamic_samples
+from batch_processor import batch_process, generate_batch_report, compare_texts
 import time
 import os
 import json
@@ -445,7 +446,7 @@ if st.session_state.raw_text:
                 else:
                     st.error("Failed to save analysis results to database.")
     
-    tabs = st.tabs(["Overview", "Preprocessing", "Sentiment Analysis", "Topic Modeling", "Full Analysis", "History"])
+    tabs = st.tabs(["Overview", "Preprocessing", "Sentiment Analysis", "Topic Modeling", "Full Analysis", "History", "Batch Processing"])
     
     with tabs[0]:
         st.subheader("Text Overview")
@@ -977,6 +978,435 @@ if st.session_state.raw_text:
                 use_container_width=True,
                 hide_index=True
             )
+            
+    with tabs[6]:
+        st.subheader("📚 Batch Processing")
+        
+        # Initialize session state for batch processing
+        if 'batch_texts' not in st.session_state:
+            st.session_state.batch_texts = []
+            st.session_state.batch_text_types = []
+            st.session_state.batch_results = None
+            st.session_state.batch_report = None
+            st.session_state.batch_comparison = None
+        
+        st.markdown("""
+        <div class="stCard">
+            <h3 style="margin-top: 0;">Analyze Multiple Documents</h3>
+            <p>Process multiple Indonesian text documents simultaneously and compare their results.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Batch options
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown("### Add Documents to Batch")
+            
+            # Text input options
+            input_method = st.radio(
+                "Add document using:",
+                ["Enter text", "Upload file", "Use sample"],
+                horizontal=True,
+                key="batch_input_method"
+            )
+            
+            # Add document form
+            with st.form(key="add_document_form"):
+                if input_method == "Enter text":
+                    batch_text = st.text_area(
+                        "Enter Indonesian text:",
+                        height=150,
+                        placeholder="Paste your Indonesian text here..."
+                    )
+                elif input_method == "Upload file":
+                    uploaded_file = st.file_uploader("Upload text file", type=['txt'], key="batch_file_uploader")
+                    batch_text = uploaded_file.read().decode("utf-8") if uploaded_file else ""
+                else:  # Use sample
+                    # Combine static and dynamic samples
+                    all_samples = {**sample_texts, **st.session_state.dynamic_samples}
+                    sample_selection = st.selectbox(
+                        "Choose a sample Indonesian text:",
+                        options=list(all_samples.keys()),
+                        key="batch_sample_selection"
+                    )
+                    batch_text = all_samples[sample_selection]
+                    st.text_area("Preview:", value=batch_text[:200] + "...", height=100, disabled=True)
+                
+                text_type = st.selectbox(
+                    "Document type:",
+                    options=["News", "Review", "Academic", "Social Media", "Story", "Other"],
+                    key="batch_text_type"
+                )
+                
+                submit_button = st.form_submit_button("Add to Batch", type="primary")
+                
+                if submit_button and batch_text:
+                    st.session_state.batch_texts.append(batch_text)
+                    st.session_state.batch_text_types.append(text_type)
+                    st.success(f"Document added! Batch now contains {len(st.session_state.batch_texts)} documents.")
+        
+        with col2:
+            st.markdown("### Batch Queue")
+            
+            # Display current batch
+            if st.session_state.batch_texts:
+                st.markdown(f"**{len(st.session_state.batch_texts)} documents in queue:**")
+                for i, (text, text_type) in enumerate(zip(st.session_state.batch_texts, st.session_state.batch_text_types)):
+                    preview = text[:50] + "..." if len(text) > 50 else text
+                    st.markdown(f"{i+1}. **{text_type}**: {preview}")
+                
+                if st.button("Clear All Documents", key="clear_batch"):
+                    st.session_state.batch_texts = []
+                    st.session_state.batch_text_types = []
+                    st.session_state.batch_results = None
+                    st.session_state.batch_report = None
+                    st.session_state.batch_comparison = None
+                    st.rerun()
+            else:
+                st.info("No documents in batch queue yet. Add documents using the form.")
+        
+        # Batch processing options
+        if st.session_state.batch_texts:
+            st.markdown("### Process Batch")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                do_batch_preprocess = st.checkbox("Text Preprocessing", value=True, key="batch_preprocess")
+            with col2:
+                do_batch_sentiment = st.checkbox("Sentiment Analysis", value=True, key="batch_sentiment")
+            with col3:
+                do_batch_topic = st.checkbox("Topic Modeling", value=True, key="batch_topic")
+            
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                save_to_db = st.checkbox("Save results to database", value=True, key="batch_save_db")
+            
+            with col2:
+                max_workers = st.slider("Parallel Workers", min_value=1, max_value=5, value=3, key="batch_workers")
+            
+            process_config = {
+                'do_preprocessing': do_batch_preprocess,
+                'do_sentiment': do_batch_sentiment,
+                'do_topic': do_batch_topic
+            }
+            
+            if st.button("🚀 Process Batch", type="primary", key="run_batch", use_container_width=True):
+                if not st.session_state.api_key:
+                    st.warning("Please enter your GEMINI API key in the sidebar.")
+                else:
+                    with st.spinner("Processing batch of documents..."):
+                        try:
+                            # Run batch processing
+                            st.session_state.batch_results = batch_process(
+                                st.session_state.batch_texts,
+                                st.session_state.batch_text_types,
+                                st.session_state.api_key,
+                                process_config,
+                                save_to_db,
+                                max_workers
+                            )
+                            
+                            # Generate report
+                            st.session_state.batch_report = generate_batch_report(st.session_state.batch_results)
+                            
+                            # Generate comparison if more than 1 document
+                            if len(st.session_state.batch_texts) > 1:
+                                st.session_state.batch_comparison = compare_texts(st.session_state.batch_results)
+                            
+                            st.success(f"Successfully processed {len(st.session_state.batch_results)} documents!")
+                        except Exception as e:
+                            st.error(f"Error processing batch: {str(e)}")
+            
+            # Display batch results if available
+            if st.session_state.batch_results:
+                st.markdown("---")
+                st.markdown("## Batch Results")
+                
+                # Create tabs for results, comparison, and report
+                batch_result_tabs = st.tabs(["Documents", "Comparison", "Summary Report"])
+                
+                with batch_result_tabs[0]:
+                    st.markdown("### Individual Document Results")
+                    
+                    # Create expandable sections for each document
+                    for i, result in enumerate(st.session_state.batch_results):
+                        with st.expander(f"Document {i+1}: {result.get('text_type', 'Unknown')}"):
+                            if result.get('status') == 'failed':
+                                st.error(f"Processing failed: {', '.join(result.get('errors', ['Unknown error']))}")
+                                continue
+                            
+                            # Document info
+                            st.markdown(f"**Document Type:** {result.get('text_type', 'Unknown')}")
+                            st.markdown(f"**Word Count:** {result.get('word_count', 0)}")
+                            
+                            # Preview
+                            with st.expander("Text Preview"):
+                                st.text_area("", value=result.get('text', '')[:500] + "..." if len(result.get('text', '')) > 500 else result.get('text', ''), 
+                                            height=100, disabled=True)
+                            
+                            # Display results
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                if result.get('sentiment_result'):
+                                    sentiment = result['sentiment_result'].get('sentiment', 'Unknown')
+                                    pos_score = result['sentiment_result'].get('positive_score', 0) * 100
+                                    neu_score = result['sentiment_result'].get('neutral_score', 0) * 100
+                                    neg_score = result['sentiment_result'].get('negative_score', 0) * 100
+                                    
+                                    sentiment_color = {
+                                        "Positive": "green",
+                                        "Negative": "red",
+                                        "Neutral": "gray"
+                                    }.get(sentiment, "blue")
+                                    
+                                    st.markdown(f"**Sentiment:** <span style='color:{sentiment_color}'>{sentiment}</span>", unsafe_allow_html=True)
+                                    
+                                    # Small bar chart for sentiment scores
+                                    sentiment_data = {
+                                        'Sentiment': ['Positive', 'Neutral', 'Negative'],
+                                        'Score': [pos_score, neu_score, neg_score]
+                                    }
+                                    sentiment_df = pd.DataFrame(sentiment_data)
+                                    fig = px.bar(
+                                        sentiment_df, 
+                                        x='Score', 
+                                        y='Sentiment', 
+                                        orientation='h',
+                                        color='Sentiment',
+                                        color_discrete_map={
+                                            'Positive': 'green',
+                                            'Neutral': 'gray',
+                                            'Negative': 'red'
+                                        },
+                                        text_auto='.0f'
+                                    )
+                                    fig.update_layout(height=200, xaxis_title="", yaxis_title="", xaxis_range=[0, 100])
+                                    st.plotly_chart(fig, use_container_width=True)
+                            
+                            with col2:
+                                if result.get('topic_result'):
+                                    st.markdown("**Top Topics:**")
+                                    
+                                    # Get all words from topics and their weights
+                                    all_words = []
+                                    for topic in result['topic_result']:
+                                        for word, weight in topic[:5]:  # Get top 5 words from each topic
+                                            all_words.append((word, weight))
+                                    
+                                    # Create word count dataframe
+                                    words_df = pd.DataFrame(all_words, columns=['Word', 'Weight'])
+                                    words_df = words_df.groupby('Word').sum().reset_index().sort_values('Weight', ascending=False).head(10)
+                                    
+                                    # Plot horizontal bar chart
+                                    fig = px.bar(
+                                        words_df, 
+                                        x='Weight', 
+                                        y='Word', 
+                                        orientation='h',
+                                        color='Weight',
+                                        color_continuous_scale='viridis',
+                                        text_auto='.2f'
+                                    )
+                                    fig.update_layout(height=300, yaxis=dict(autorange="reversed"))
+                                    st.plotly_chart(fig, use_container_width=True)
+                
+                with batch_result_tabs[1]:
+                    if st.session_state.batch_comparison and 'error' not in st.session_state.batch_comparison:
+                        st.markdown("### Document Comparison")
+                        
+                        # Sentiment comparison
+                        st.subheader("Sentiment Comparison")
+                        if st.session_state.batch_comparison.get('sentiment_comparison'):
+                            sentiment_comp = pd.DataFrame(st.session_state.batch_comparison['sentiment_comparison'])
+                            
+                            # Radar chart for sentiment comparison
+                            fig = go.Figure()
+                            
+                            for i, row in sentiment_comp.iterrows():
+                                fig.add_trace(go.Scatterpolar(
+                                    r=[row['positive_score']*100, row['neutral_score']*100, row['negative_score']*100],
+                                    theta=['Positive', 'Neutral', 'Negative'],
+                                    fill='toself',
+                                    name=f"Doc {row['text_num']}: {row['text_type']}"
+                                ))
+                            
+                            fig.update_layout(
+                                polar=dict(
+                                    radialaxis=dict(
+                                        visible=True,
+                                        range=[0, 100]
+                                    )),
+                                showlegend=True,
+                                title="Sentiment Comparison"
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Length comparison
+                        st.subheader("Length Comparison")
+                        if st.session_state.batch_comparison.get('length_comparison'):
+                            length_comp = pd.DataFrame(st.session_state.batch_comparison['length_comparison'])
+                            
+                            # Create a bar chart
+                            fig = px.bar(
+                                length_comp,
+                                x='text_num',
+                                y='word_count',
+                                color='text_type',
+                                labels={'text_num': 'Document', 'word_count': 'Word Count'},
+                                title="Word Count Comparison",
+                                text_auto='.0f'
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Topic similarity
+                        st.subheader("Topic Similarity")
+                        if st.session_state.batch_comparison.get('topic_similarity'):
+                            topic_sim = pd.DataFrame(st.session_state.batch_comparison['topic_similarity'])
+                            
+                            # Create a heatmap-like visualization
+                            col1, col2 = st.columns([2, 1])
+                            
+                            with col1:
+                                fig = px.bar(
+                                    topic_sim,
+                                    x='text_pair',
+                                    y='similarity_score',
+                                    color='similarity_score',
+                                    color_continuous_scale='viridis',
+                                    title="Topic Similarity Between Documents",
+                                    text_auto='.2f'
+                                )
+                                fig.update_layout(yaxis_range=[0, 1])
+                                st.plotly_chart(fig, use_container_width=True)
+                            
+                            with col2:
+                                # Display common words
+                                st.markdown("### Common Words")
+                                for i, row in topic_sim.iterrows():
+                                    st.markdown(f"**{row['text_pair']}:**")
+                                    if row['common_words']:
+                                        st.markdown(", ".join(row['common_words'][:8]))
+                                    else:
+                                        st.markdown("No common words")
+                                    st.markdown("---")
+                    else:
+                        st.info("Comparison requires at least two successfully processed documents.")
+                
+                with batch_result_tabs[2]:
+                    if st.session_state.batch_report:
+                        st.markdown("### Batch Processing Report")
+                        
+                        # Overview metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Documents", st.session_state.batch_report.get('total_texts', 0))
+                        with col2:
+                            st.metric("Successful", st.session_state.batch_report.get('successful', 0))
+                        with col3:
+                            st.metric("Failed", st.session_state.batch_report.get('failed', 0))
+                        with col4:
+                            avg_words = st.session_state.batch_report.get('word_count_stats', {}).get('avg', 0)
+                            st.metric("Avg Words", f"{int(avg_words)}")
+                        
+                        # Sentiment distribution
+                        if st.session_state.batch_report.get('sentiment_distribution'):
+                            st.subheader("Sentiment Distribution")
+                            sentiment_counts = st.session_state.batch_report['sentiment_distribution']
+                            sentiment_df = pd.DataFrame({
+                                'Sentiment': list(sentiment_counts.keys()),
+                                'Count': list(sentiment_counts.values())
+                            })
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                # Pie chart
+                                fig = px.pie(
+                                    sentiment_df,
+                                    values='Count',
+                                    names='Sentiment',
+                                    title='Sentiment Distribution',
+                                    color='Sentiment',
+                                    color_discrete_map={
+                                        'Positive': 'green',
+                                        'Neutral': 'gray',
+                                        'Negative': 'red',
+                                        'Unknown': 'blue'
+                                    }
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            
+                            with col2:
+                                # Bar chart
+                                fig = px.bar(
+                                    sentiment_df,
+                                    x='Sentiment',
+                                    y='Count',
+                                    title='Sentiment Count',
+                                    color='Sentiment',
+                                    color_discrete_map={
+                                        'Positive': 'green',
+                                        'Neutral': 'gray',
+                                        'Negative': 'red',
+                                        'Unknown': 'blue'
+                                    },
+                                    text_auto='.0f'
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Word count statistics
+                        if st.session_state.batch_report.get('word_count_stats'):
+                            st.subheader("Word Count Statistics")
+                            
+                            word_stats = st.session_state.batch_report['word_count_stats']
+                            stats_df = pd.DataFrame({
+                                'Statistic': ['Minimum', 'Maximum', 'Average', 'Total'],
+                                'Count': [
+                                    word_stats.get('min', 0),
+                                    word_stats.get('max', 0),
+                                    round(word_stats.get('avg', 0), 1),
+                                    word_stats.get('total', 0)
+                                ]
+                            })
+                            
+                            fig = px.bar(
+                                stats_df,
+                                x='Statistic',
+                                y='Count',
+                                title='Word Count Statistics',
+                                color='Statistic',
+                                text_auto='.0f'
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Topic summary
+                        if st.session_state.batch_report.get('topic_summary'):
+                            st.subheader("Common Topics Across Documents")
+                            
+                            topic_summary = st.session_state.batch_report['topic_summary']
+                            topic_df = pd.DataFrame(topic_summary)
+                            
+                            # Bar chart of most common words
+                            fig = px.bar(
+                                topic_df.head(15),
+                                x='count',
+                                y='word',
+                                orientation='h',
+                                title='Most Common Words Across All Documents',
+                                color='count',
+                                color_continuous_scale='viridis',
+                                text_auto='.0f'
+                            )
+                            fig.update_layout(yaxis=dict(autorange="reversed"))
+                            st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("Run batch processing to generate a summary report.")
             
             # Handle viewing a record
             if selected_indices:
