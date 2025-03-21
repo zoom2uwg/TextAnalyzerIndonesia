@@ -3,12 +3,18 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from text_preprocessing import preprocess_text
+from text_preprocessing import preprocess_text, count_words
 from text_analysis import analyze_sentiment, analyze_text_with_gemini
 from topic_modeling import perform_topic_modeling
-from utils import get_indonesian_stopwords, display_wordcloud, apply_custom_css
+from utils import get_indonesian_stopwords, display_wordcloud, apply_custom_css, format_json_for_display
+from database import save_analysis, get_analysis_history, get_analysis_by_id
 import time
 import os
+import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Set page configuration
 st.set_page_config(
@@ -255,7 +261,46 @@ if not st.session_state.api_key:
 if st.session_state.raw_text:
     st.header("📊 Analysis Results")
     
-    tabs = st.tabs(["Overview", "Preprocessing", "Sentiment Analysis", "Topic Modeling", "Full Analysis"])
+    # Save analysis results to database when all analysis is completed
+    if (st.session_state.processed_text and 
+        st.session_state.sentiment_result and 
+        st.session_state.topic_result and 
+        st.session_state.full_analysis):
+        
+        # Create a "Save Results" button
+        if st.button("💾 Save Analysis Results to Database", key="btn_save"):
+            with st.spinner("Saving results to database..."):
+                # Get word count
+                word_count = count_words(st.session_state.raw_text)
+                
+                # Get text type (if selected from sample)
+                text_type = None
+                if input_option == "Use sample text":
+                    # Determine text type from the sample text
+                    for sample_name, sample_content in sample_texts.items():
+                        if user_input.strip() == sample_content.strip():
+                            text_type = sample_name
+                            break
+                
+                # Convert processed text to string
+                preprocessed_text_str = " ".join(st.session_state.processed_text)
+                
+                # Save to database
+                record_id = save_analysis(
+                    text=st.session_state.raw_text,
+                    text_type=text_type,
+                    word_count=word_count,
+                    preprocessed_text=preprocessed_text_str,
+                    sentiment_analysis=st.session_state.sentiment_result,
+                    topic_modeling=st.session_state.topic_result
+                )
+                
+                if record_id:
+                    st.success(f"Analysis results saved to database with ID: {record_id}")
+                else:
+                    st.error("Failed to save analysis results to database.")
+    
+    tabs = st.tabs(["Overview", "Preprocessing", "Sentiment Analysis", "Topic Modeling", "Full Analysis", "History"])
     
     with tabs[0]:
         st.subheader("Text Overview")
@@ -749,6 +794,124 @@ if st.session_state.raw_text:
                     st.markdown(f"**{i+1}.** {rec}")
         else:
             st.info("Complete the analysis to see comprehensive results here.")
+    
+    with tabs[5]:
+        st.subheader("Analysis History")
+        
+        # Get history from database
+        history = get_analysis_history(limit=20)
+        
+        if history:
+            st.markdown("### Recent Analysis Records")
+            
+            # Create a dataframe for display
+            history_df = pd.DataFrame(history)
+            
+            # Format timestamp for better display
+            if 'timestamp' in history_df.columns:
+                history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
+                history_df['timestamp'] = history_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+            
+            # Add a view button column
+            history_df['action'] = 'View'
+            
+            # Display as table
+            selected_indices = st.dataframe(
+                history_df[['id', 'timestamp', 'text_type', 'word_count', 'has_sentiment', 'has_topics', 'text', 'action']], 
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", width="small"),
+                    "timestamp": st.column_config.DatetimeColumn("Date & Time", width="medium"),
+                    "text_type": st.column_config.TextColumn("Type", width="small"),
+                    "word_count": st.column_config.NumberColumn("Words", width="small"),
+                    "has_sentiment": st.column_config.CheckboxColumn("Sentiment", width="small"),
+                    "has_topics": st.column_config.CheckboxColumn("Topics", width="small"),
+                    "text": st.column_config.TextColumn("Text Preview", width="large"),
+                    "action": st.column_config.ButtonColumn("Action", width="small")
+                },
+                height=400,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Handle viewing a record
+            if selected_indices:
+                for selected_index in selected_indices.rows:
+                    record_id = history_df.iloc[selected_index].id
+                    
+                    # Get full record details
+                    record = get_analysis_by_id(record_id)
+                    
+                    if record:
+                        st.markdown(f"### Analysis Record #{record_id}")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("#### Text Information")
+                            st.markdown(f"**Type:** {record['text_type'] or 'Not specified'}")
+                            st.markdown(f"**Date:** {record['timestamp']}")
+                            st.markdown(f"**Word Count:** {record['word_count']}")
+                            
+                            # Text preview with expandable view
+                            with st.expander("View Full Text", expanded=False):
+                                st.text_area("", value=record['text'], height=200, disabled=True)
+                        
+                        with col2:
+                            # Display sentiment result if available
+                            if record['sentiment_analysis']:
+                                sentiment_data = record['sentiment_analysis']
+                                
+                                sentiment = sentiment_data.get("sentiment", "Unknown")
+                                sentiment_color = {
+                                    "Positive": "green",
+                                    "Negative": "red",
+                                    "Neutral": "gray"
+                                }.get(sentiment, "blue")
+                                
+                                st.markdown(f"**Sentiment:** <span style='color:{sentiment_color}'>{sentiment}</span>", unsafe_allow_html=True)
+                                
+                                # Show sentiment scores
+                                scores = {
+                                    "Positive": sentiment_data.get("positive_score", 0),
+                                    "Neutral": sentiment_data.get("neutral_score", 0),
+                                    "Negative": sentiment_data.get("negative_score", 0)
+                                }
+                                
+                                # Create a small horizontal bar chart for sentiment scores
+                                score_df = pd.DataFrame({
+                                    'Sentiment': list(scores.keys()),
+                                    'Score': list(scores.values())
+                                })
+                                
+                                fig = px.bar(
+                                    score_df,
+                                    x='Score',
+                                    y='Sentiment',
+                                    orientation='h',
+                                    title="Sentiment Scores",
+                                    color='Sentiment',
+                                    color_discrete_map={
+                                        'Positive': 'green',
+                                        'Neutral': 'gray',
+                                        'Negative': 'red'
+                                    }
+                                )
+                                fig.update_layout(height=200)
+                                st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Display topics if available
+                        if record['topic_modeling']:
+                            st.markdown("#### Top Topics")
+                            topic_data = record['topic_modeling']
+                            
+                            # Display first two topics as examples
+                            for i, topic in enumerate(topic_data[:2]):
+                                with st.expander(f"Topic {i+1}", expanded=False):
+                                    # Display words and weights
+                                    topic_df = pd.DataFrame(topic, columns=["Word", "Weight"])
+                                    st.dataframe(topic_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No analysis history found. Complete and save an analysis to see it here.")
 
 # Footer
 st.markdown("---")
